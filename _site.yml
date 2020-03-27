@@ -1,0 +1,13 @@
+name: "Whack-a-Mole Eye Analysis"
+output_dir: "docs"
+navbar:
+  title: "Eye Analysis"
+  left:
+  - text: "Home"
+   href: index.html
+  - text: "Eye Analysis"
+   href: eyetrack_analysis.html
+output:
+  html_document:
+ theme: cosmo
+
