@@ -2,7 +2,6 @@
 title: "Whack-a-Mole Eye Tracking Analysis"
 author: "Bastian Ilsø Hougaard, Hendrik Knoche"
 date: "3/27/2020"
-output: html_document
 ---
 
 ```{r setup, include=FALSE}
@@ -12,10 +11,10 @@ knitr::opts_chunk$set(echo = TRUE)
 options(scipen=1, digits=2)
 dir = 'csv_data'
 
-D_game = read.csv(file = 'csv_data/gameLog.csv')
-D_gaze = read.csv(file = 'csv_data/gaze_positions.csv')
-D_pupil = read.csv(file = 'csv_data/pupil_positions.csv')
-D_fixations = read.csv(file = 'csv_data/fixations.csv')
+D_game = read.csv(file = '../csv_data/gameLog.csv')
+D_gaze = read.csv(file = '../csv_data/gaze_positions.csv')
+D_pupil = read.csv(file = '../csv_data/pupil_positions.csv')
+D_fixations = read.csv(file = '../csv_data/fixations.csv')
 
 D_all = D_game %>% full_join(D_gaze, by = c("PupilTime" = "gaze_timestamp")) %>% arrange(PupilTime)
 
@@ -40,6 +39,11 @@ This document provides analysis of data collected by Whack-A-Mole VR and Pupil C
 
 
 ## Oculometrics
+
+### TODO
+
+ * Calculate things with `PupilSize` - maybe for Pupil Dilation..
+ * Saccade analysis (?)
 
 ### Summarizing Eye movements as visual angles.
 
@@ -87,6 +91,7 @@ example_coord =  data.frame(
 
 kable(example_coord)
 
+hist(D_gaze$vis_degrees)
 
 ```
 
@@ -169,6 +174,9 @@ example_coord =  data.frame(
   )
 
 kable(example_coord)
+
+hist(D_gaze$vis_eye1)
+hist(D_gaze$vis_eye2)
 
 ```
 
