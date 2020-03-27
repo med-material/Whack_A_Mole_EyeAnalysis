@@ -1,0 +1,174 @@
+---
+title: "Whack-a-Mole Eye Tracking Analysis"
+author: "Bastian Ilsø Hougaard, Hendrik Knoche"
+date: "3/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen=1, digits=2)
+dir = 'csv_data'
+
+D_game = read.csv(file = 'csv_data/gameLog.csv')
+D_gaze = read.csv(file = 'csv_data/gaze_positions.csv')
+D_pupil = read.csv(file = 'csv_data/pupil_positions.csv')
+D_fixations = read.csv(file = 'csv_data/fixations.csv')
+
+D_all = D_game %>% full_join(D_gaze, by = c("PupilTime" = "gaze_timestamp")) %>% arrange(PupilTime)
+
+```
+
+## Table of Contents
+1. [Introduction](#introduction)
+3. [Oculometrics](#oculometrics)
+
+## Introduction
+
+This document provides analysis of data collected by Whack-A-Mole VR and Pupil Capture:
+
+ * `gameLog.csv` is Whack-A-Mole's game data.
+ * `export_info.csv` is generic export information from Pupil Capture.
+ * `fixation_report.csv` is Pupil Player's aggregated summary of counted fixations.
+ * `fixations.csv` contains every fixation found during the game.
+ * `pupil_positions.csv` contains every frame of data from the eye tracking cameras.
+ * `gaze_positions.csv` contains Pupil's interpreted 3D gaze data (how it maps to VR).
+ * `world_timestamps.csv` contains mapping from pupil_time to frame in the recorded video.
+ * `world.mp4` is the annotated video.
+
+
+## Oculometrics
+
+### Summarizing Eye movements as visual angles.
+
+In eye tracking analysis we prefer to analyze data using established units such as visual angles.
+
+#### Using PFA's suggestion
+
+The below results is the based on using PFA's calculation method. His calculation method assumes that the origin position of the eye is `0,0,0`. Therefore distance is simply assumed to be the vectors' magnitude.
+
+**Math:** `angle = arccos( (a dot b) / (|a| * |b|) )`
+
+
+```{r visual-angle-1, echo=FALSE}
+visAngle <- function(a_x, a_y, a_z, b_x, b_y, b_z){
+  # this function calculates visual angle
+  # size and distance must be in the same units
+  a = c(a_x, a_y, a_z)
+  b = c(b_x, b_y, b_z)
+  if (anyNA(a) || anyNA(b)) {
+    return(NA)
+  }
+  
+  Rad = acos( (a %*% b) / ( norm(a, type="2") * norm(b, type="2") ) )
+  Ang = Rad*(180/pi)
+  return(Ang)
+}
+
+D_gaze$vis_degrees = mapply(visAngle,lag(D_gaze$gaze_point_3d_x), lag(D_gaze$gaze_point_3d_y), lag(D_gaze$gaze_point_3d_z), D_gaze$gaze_point_3d_x, D_gaze$gaze_point_3d_y, D_gaze$gaze_point_3d_z)
+
+
+summaries = D_gaze %>%
+            summarize(min = min(vis_degrees, na.rm=T),
+                      quantile1 = quantile(vis_degrees, 0.25, na.rm=T),
+                      mean = mean(vis_degrees, na.rm=T),
+                      quantile3 = quantile(vis_degrees, 0.75, na.rm=T),
+                      max = max(vis_degrees, na.rm=T))
+
+kable(summaries) # formats the output as a nice table.
+
+example_coord =  data.frame(
+  point_a = paste(round(D_gaze$gaze_point_3d_x[1],2),round(D_gaze$gaze_point_3d_y[1],2),round(D_gaze$gaze_point_3d_z[1],2), sep=", "),
+  point_b = paste(round(D_gaze$gaze_point_3d_x[2],2),round(D_gaze$gaze_point_3d_y[2],2),round(D_gaze$gaze_point_3d_z[2],2), sep=", "),
+  angle = visAngle(D_gaze$gaze_point_3d_x[1], D_gaze$gaze_point_3d_y[1], D_gaze$gaze_point_3d_z[1], D_gaze$gaze_point_3d_x[2], D_gaze$gaze_point_3d_y[2], D_gaze$gaze_point_3d_z[2])
+  )
+
+kable(example_coord)
+
+
+```
+
+
+#### Using Stephen Rhode's Implementation
+
+Stephen Rhode's implementation uses `size` and `distance` to calculate visual angle. In this case, we determine `size` as magnitude of gaze position `gaze_point_3d` from previous gaze position, and `distance` as magnitude of gaze position from eye position `eye_center0_3d`.
+
+**Math:** `angle = 2*arctan( size / (2 * distance) )`
+
+
+```{r visual-angle-stephen, echo=FALSE}
+calcSize <- function(a_x, a_y, a_z, b_x, b_y, b_z) {
+  a = c(a_x, a_y, a_z)
+  b = c(b_x, b_y, b_z)
+  if (anyNA(a) || anyNA(b)) {
+    return(NA)
+  }  
+  size = norm(b - a, type="2")
+  return(size)
+}
+
+calcDistance <- function(b_x, b_y, b_z, e_x, e_y, e_z) {
+  e = c(e_x, e_y, e_z)
+  b = c(b_x, b_y, b_z)
+  if (anyNA(b) || anyNA(e)) {
+    return(NA)
+  }  
+  distance = norm(b - e, type="2")
+  return(distance)
+}
+
+visAngle <- function(a_x, a_y, a_z, b_x, b_y, b_z, e_x, e_y, e_z){
+  a = c(a_x, a_y, a_z)
+  b = c(b_x, b_y, b_z)
+  e = c(e_x, e_y, e_z)
+  if (anyNA(a) || anyNA(b) || anyNA(e)) {
+    return(NA)
+  }  
+  
+  size = calcSize(a_x, a_y, a_z, b_x, b_y, b_z) #norm(b - a, type="2")
+  distance = calcDistance(b_x, b_y, b_z, e_x, e_y, e_z) #(b - e, type="2")
+  
+  # this function calculates visual angle
+  # size and distance must be in the same units
+  Rad = 2*atan(size/(2*distance))
+  Ang = Rad*(180/pi)
+  return(Ang)
+}
+
+D_gaze$vis_eye1 = mapply(visAngle,lag(D_gaze$gaze_point_3d_x), lag(D_gaze$gaze_point_3d_y), lag(D_gaze$gaze_point_3d_z), D_gaze$gaze_point_3d_x, D_gaze$gaze_point_3d_y, D_gaze$gaze_point_3d_z, D_gaze$eye_center0_3d_x, D_gaze$eye_center0_3d_y, D_gaze$eye_center0_3d_z)
+D_gaze$vis_eye2 = mapply(visAngle,lag(D_gaze$gaze_point_3d_x), lag(D_gaze$gaze_point_3d_y), lag(D_gaze$gaze_point_3d_z), D_gaze$gaze_point_3d_x, D_gaze$gaze_point_3d_y, D_gaze$gaze_point_3d_z, D_gaze$eye_center1_3d_x, D_gaze$eye_center1_3d_y, D_gaze$eye_center1_3d_z)
+
+
+summary1 = D_gaze %>%
+            summarize(eye1_min = min(vis_eye1, na.rm=T),
+                      eye1_quantile1 = quantile(vis_eye1, 0.25, na.rm=T),
+                      eye1_mean = mean(vis_eye1, na.rm=T),
+                      eye1_quantile3 = quantile(vis_eye1, 0.75, na.rm=T),
+                      eye1_max = max(vis_eye1, na.rm=T))
+
+kable(summary1) # formats the output as a nice table.
+
+summary2 = D_gaze %>%
+            summarize(eye2_min = min(vis_eye2, na.rm=T),
+                      eye2_quantile1 = quantile(vis_eye2, 0.25, na.rm=T),
+                      eye2_mean = mean(vis_eye1, na.rm=T),
+                      eye2_quantile3 = quantile(vis_eye2, 0.75, na.rm=T),
+                      eye2_max = max(vis_eye2, na.rm=T))
+
+kable(summary2) # formats the output as a nice table.
+
+example_coord =  data.frame(
+  point_a = paste(round(D_gaze$gaze_point_3d_x[1],2),round(D_gaze$gaze_point_3d_y[1],2),round(D_gaze$gaze_point_3d_z[1],2), sep=", "),
+  point_b = paste(round(D_gaze$gaze_point_3d_x[2],2),round(D_gaze$gaze_point_3d_y[2],2),round(D_gaze$gaze_point_3d_z[2],2), sep=", "),
+  eye1 = paste(round(D_gaze$eye_center0_3d_x[2],2),round(D_gaze$eye_center0_3d_y[2],2),round(D_gaze$eye_center0_3d_z[2],2), sep=", "),
+  size = calcSize(D_gaze$gaze_point_3d_x[1], D_gaze$gaze_point_3d_y[1], D_gaze$gaze_point_3d_z[1], D_gaze$gaze_point_3d_x[2], D_gaze$gaze_point_3d_y[2], D_gaze$gaze_point_3d_z[2]),
+  distance = calcDistance(D_gaze$gaze_point_3d_x[2], D_gaze$gaze_point_3d_y[2], D_gaze$gaze_point_3d_z[2], D_gaze$eye_center0_3d_x[2], D_gaze$eye_center0_3d_y[2], D_gaze$eye_center0_3d_z[2]),
+  angle = visAngle(D_gaze$gaze_point_3d_x[1], D_gaze$gaze_point_3d_y[1], D_gaze$gaze_point_3d_z[1], D_gaze$gaze_point_3d_x[2], D_gaze$gaze_point_3d_y[2], D_gaze$gaze_point_3d_z[2], D_gaze$eye_center0_3d_x[2], D_gaze$eye_center0_3d_y[2], D_gaze$eye_center0_3d_z[2])
+  )
+
+kable(example_coord)
+
+```
+
